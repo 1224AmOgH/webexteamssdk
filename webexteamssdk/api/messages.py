@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import zulip
 
 from __future__ import (
     absolute_import,
@@ -338,3 +339,121 @@ class MessagesAPI(object):
 
         # API request
         self._session.delete(API_ENDPOINT + '/' + messageId)
+        
+        # Edit Message
+        
+        
+        def edit(self, roomId=None, parentId=None, toPersonId=None,
+               toPersonEmail=None, text=None, markdown=None, files=None,
+               attachments=None, **request_parameters):
+        """Post a message to a room.
+
+        The files parameter is a list, which accepts multiple values to allow
+        for future expansion, but currently only one file may be included with
+        the message.
+
+        Args:
+            roomId(basestring): The room ID.
+            toPersonId(basestring): The ID of the recipient when sending a
+                private 1:1 message.
+            toPersonEmail(basestring): The email address of the recipient when
+                sending a private 1:1 message.
+            text(basestring): The message, in plain text. If `markdown` is
+                specified this parameter may be optionally used to provide
+                alternate text for UI clients that do not support rich text.
+            markdown(basestring): The message, in markdown format.
+            files(list): A list of public URL(s) or local path(s) to files to
+                be posted into the room. Only one file is allowed per message.
+            attachments(list): Content attachments to attach to the message.
+                See the Cards Guide for more information.
+            parentId(basestring): The parent message to reply to. This will
+                start or reply to a thread.
+            **request_parameters: Additional request parameters (provides
+                support for parameters that may be added in the future).
+
+        Returns:
+            Message: A Message object with the details of the created message.
+
+        Raises:
+            TypeError: If the parameter types are incorrect.
+            ApiError: If the Webex Teams cloud returns an error.
+            ValueError: If the files parameter is a list of length > 1, or if
+                the string in the list (the only element in the list) does not
+                contain a valid URL or path to a local file.
+
+        """
+        check_type(roomId, basestring, optional=True)
+        check_type(toPersonId, basestring, optional=True)
+        check_type(toPersonEmail, basestring, optional=True)
+        check_type(text, basestring, optional=True)
+        check_type(markdown, basestring, optional=True)
+        check_type(files, list, optional=True)
+        check_type(attachments, list, optional=True)
+        check_type(parentId, basestring, optional=True)
+
+       ''' if files:
+            if len(files) > 1:
+                raise ValueError("The `files` parameter should be a list with "
+                                 "exactly one (1) item. The files parameter "
+                                 "is a list, which accepts multiple values to "
+                                 "allow for future expansion, but currently "
+                                 "only one file may be included with the "
+                                 "message.")
+            check_type(files[0], basestring)
+        else:
+            files = None'''
+
+        # Process and serialize attachments
+        if attachments:
+            for item, attachment in enumerate(attachments):
+                check_type(attachment, (dict, AdaptiveCard))
+
+                if isinstance(attachment, AdaptiveCard):
+                    attachments[item] = make_attachment(attachment)
+
+        post_data = dict_from_items_with_values(
+            request_parameters,
+            roomId=roomId,
+            toPersonId=toPersonId,
+            toPersonEmail=toPersonEmail,
+            text=text,
+            markdown=markdown,
+            files=files,
+            attachments=attachments,
+            parentId=parentId
+        )
+
+        # API request
+        if not files or is_web_url(files[0]):
+            # Standard JSON post
+            json_data = self._session.post(API_ENDPOINT, json=post_data)
+
+        elif is_local_file(files[0]):
+            # Multipart MIME post
+            try:
+                post_data['files'] = open_local_file(files[0])
+                multipart_data = MultipartEncoder(post_data)
+                headers = {'Content-type': multipart_data.content_type}
+                json_data = self._session.post(API_ENDPOINT,
+                                               headers=headers,
+                                               data=multipart_data)
+            finally:
+                post_data['files'].file_object.close()
+
+        else:
+            raise ValueError("The `files` parameter does not contain a vaild "
+                             "URL or path to a local file.")
+            client = zulip.Client(config_file="~/zuliprc")
+
+# Edit a message
+# (make sure that message_id below is set to the ID of the
+# message you wish to update)
+request = {
+    "message_id": message_id,
+    "content": "New content",
+}
+result = client.update_message(request)
+print(result)
+
+        # Return a message object created from the response JSON data
+        return self._object_factory(OBJECT_TYPE, json_data)
